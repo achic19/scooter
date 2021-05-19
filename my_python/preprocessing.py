@@ -57,3 +57,4 @@ def divide_by_day(shp_file: str, csv_file: str):
         print(str_name)
         os.makedirs('csv_files/dates/' + str_name)
         group.to_csv('csv_files/dates/' + str_name + '/file{}.csv'.format(str_name))
+
