@@ -112,7 +112,6 @@ class Gps_trajectories:
         arcpy.SymDiff_analysis(gps_with_speed_shp, 'point_in_buffer.shp', "symdiff.shp")
 
     def __spatial_join(self, network_links_gis):
-        # ToDo run it again
         """
         :param network_links_gis:
         :return:
