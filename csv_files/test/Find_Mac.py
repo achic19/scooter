@@ -2,6 +2,7 @@ import os
 
 import arcpy
 import pandas as pd
+import numpy as np
 
 pd.set_option('display.max_columns', 10)
 pd.set_option('display.width', 1000)
@@ -29,13 +30,14 @@ def test_filter_mac():
 def test_Mac_with_its_via_to(bt_file, file_to_save='mac_df.csv'):
     print('test_Mac_with_its_via_to')
     bt = pd.read_csv(bt_file)
-    mac_df = pd.DataFrame(columns=['via_to_list'], index=bt['MAC'].unique())
+    mac_df = pd.DataFrame(columns=['via_to_list', 'time'], index=bt['MAC'].unique())
     for group_name, group in bt.groupby('MAC'):
         print(group_name)
         temp_list = list(group['via_to_uni'])
         # Save only macs that traverse more than four links
         if len(temp_list) > 3:
-            mac_df.at[group_name, 'via_to_list'] = list(group['via_to_uni'])
+            mac_df.at[group_name, 'via_to_list'] = temp_list
+            mac_df.at[group_name, 'time'] = list(group['LASTDISCOTS'])
     mac_df = mac_df[mac_df['via_to_list'].notna()]
     mac_df.to_csv(file_to_save)
 
@@ -43,29 +45,44 @@ def test_Mac_with_its_via_to(bt_file, file_to_save='mac_df.csv'):
 def test_scooter_with_its_via_to():
     print('test_scooter_with_its_via_to')
     gps_scooter = pd.read_csv('file_with_link_clean.csv')
-    sco_df = pd.DataFrame(columns=['via_to_list'], index=gps_scooter['line_id'].unique())
+    sco_df = pd.DataFrame(columns=['via_to_list', 'time'], index=gps_scooter['line_id'].unique())
     # The code iterates over the GPS trajectories of each scooter route and
     # saves the "via_to" link when the "via link" changes.
     for i, (name, group) in enumerate(gps_scooter.groupby('line_id')):
         print(name)
         group_sorted = group.sort_values(by=['timestamp']).reset_index(drop=True)
         via_to_list = []
+        time = []
+        time_temp = []
         for index, record in group_sorted.iterrows():
             if index == 0:
+                # Edge case where the first and the second index is different and the group with more one element.
+                if group_sorted['via_to'].size != 1 and group_sorted.iloc[index + 1]['via_to'] != group_sorted[index][
+                    'via_to']:
+                    via_to_list.append(record['via_to'])
+                    time.append(record['timestamp'])
                 continue
             pre_index = group_sorted.iloc[index - 1]
             cur_via_to = pre_index['via_to']
+            # Save the time to calculate average later
+            time_temp.append(record['timestamp'])
             if record['via_to'] == cur_via_to:
                 continue
             else:
                 via_to_list.append(pre_index['via_to'])
+                # Calculate  average timestamp for all points with the same 'via_to' and start new list of timestamp for
+                # the new 'via_to'
+                time.append(sum(time_temp) / len(time_temp))
+                time_temp = [record['timestamp']]
 
             # A case where the last index is different from the previous one or group with one element.
         if group_sorted['via_to'].size == 1 or group_sorted['via_to'].iloc[-1] != group_sorted['via_to'].iloc[-2]:
             via_to_list.append(group_sorted['via_to'].iloc[-1])
+            time.append(group_sorted['timestamp'].iloc[-1])
 
-        if len(via_to_list) > 4:
+        if len(via_to_list) > 3:
             sco_df.at[name, 'via_to_list'] = via_to_list
+            sco_df.at[name, 'time'] = time
     sco_df = sco_df[sco_df['via_to_list'].notna()]
     sco_df.to_csv("scooter_and_via_to.csv")
 
@@ -80,10 +97,9 @@ def calculate_similarity_sol_2(x):
     return similarity
 
 
-def calculate_similarity(x):
+def calculate_similarity3(x):
     # Todo prove the '4' value
     # Get the mac links as link
-    mac_name = x['MAC']
     x = x['via_to_list']
     list_via_to_mac = x.strip("[]").replace("'", "").split(', ')
     # if there are at least four identical links between the user scooter to the mac user run the
@@ -102,6 +118,48 @@ def calculate_similarity(x):
             except ValueError:
                 continue
     return grade
+
+
+# def calculate_similarity4(x):
+#     # Get the mac links as link
+#     x = x['via_to_list']
+#     array_via_to_mac = np.array(x.strip("[]").replace("'", "").split(', '))
+#     # if there are at least three identical links between the user scooter to the mac user run the
+#     # rest of the code
+#     if len(set(array_via_to_mac) & set(list_via_to_scooter)) < 3:
+#         return 0
+#     else:
+#         ind_scooter = 0
+#         ind_mac_const = 0
+#         grade = 0
+#         while ind_scooter < len_list_via_to_scooter:
+#             link = list_via_to_scooter[ind_scooter]
+#             inds_mac = np.where(array_via_to_mac == link)[0]
+#             inds_mac = np.where(inds_mac > ind_mac_const)
+#             for ind_mac in inds_mac:
+#                     if
+#             temp_grade = 1
+#             flag = True
+#             while flag:
+#                 ind_scooter += 1
+#                 ind_mac += 1
+#                 if list_via_to_mac[ind_mac] == list_via_to_scooter[ind_scooter] and ind_mac < len(list_via_to_mac):
+#                     temp_grade += 1
+#                 else:
+#                     flag = False
+#                     if temp_grade > 2:
+#                         grade += temp_grade
+#                         ind_mac_const = ind_mac
+#
+#         for link in list_via_to_scooter:
+#             # in each iteration, it  searches the current link in the  'list_via_to_mac' list (from the specified index to the end).
+#             # When the link is detected in the 'list_via_to_mac' list, the code updates the grade and  index.
+#             try:
+#                 index = list_via_to_mac.index(link, index) + 1
+#                 grade += 1
+#             except ValueError:
+#                 continue
+#     return grade
 
 
 def find_Mac_route():
@@ -142,23 +200,28 @@ def find_Mac_route():
 
 
 def test_Nordeo_Blv(x):
-    list_via_to_mac = x.strip("[]").replace("'", "").split(', ')
+    # this code finds Macs that go through all the  Nordeo links
+    list_via_to_mac = x['via_to_list'].strip("[]").replace("'", "").split(', ')
     try:
         index = list_via_to_mac.index(Nordeo_Blv_links[0])
-        list_to_compare = list_via_to_mac[index, ]
-
+        list_to_compare = list_via_to_mac[index:index + 6]
+        if list_to_compare == Nordeo_Blv_links:
+            print(x['MAC'])
     except ValueError:
         return
 
 
 if __name__ == '__main__':
-    what_to_run = {'calculate_similarity': False, 'find_Mac_route': False, 'test_Nordeo_Blv': True}
+    what_to_run = {'test_Mac_with_its_via_to': False, 'test_scooter_with_its_via_to': True, 'calculate_similarity':
+        False, 'find_Mac_route': False, 'test_Nordeo_Blv': [False, False]}
     # test_unidirectional()
     # input data
     # test_filter_mac()
     # New data frame For each Mac with its via_to's
-    # test_Mac_with_its_via_to('bt_in_gps_scooter.csv')
-    # test_scooter_with_its_via_to()
+    if what_to_run['test_Mac_with_its_via_to']:
+        test_Mac_with_its_via_to('bt_in_gps_scooter.csv')
+    if what_to_run['test_scooter_with_its_via_to']:
+        test_scooter_with_its_via_to()
 
     # For each Scooter route calculate similarity to each mac
     if what_to_run['calculate_similarity'] == 'sol 1':
@@ -199,9 +262,9 @@ if __name__ == '__main__':
                         sum_df.at[row['MAC'], 'agg'] += 1
                     time_0 = record['timestamp']
             # print(sum_df.sort_values(by=['agg'], ascending=False))
-            if (sum_df['agg'] > 3).any():
-                print(name)
-                print(sum_df[sum_df['agg'] > 3])
+        if (sum_df['agg'] > 3).any():
+            print(name)
+            print(sum_df[sum_df['agg'] > 3])
     if what_to_run['calculate_similarity'] == 'sol 2':
         mac_df = pd.read_csv('mac_df.csv', header=0, names=['MAC', 'via_to_list'])
         gps_scooter = pd.read_csv("scooter_and_via_to.csv", header=0, names=['line_id', 'via_to_list'])
@@ -221,7 +284,7 @@ if __name__ == '__main__':
         gps_scooter = gps_scooter[gps_scooter['high_similarity_grade'] > 80]
         mac_df.to_csv('res.csv')
     if what_to_run['calculate_similarity'] == 'sol 3':
-        print('calculate_similarity')
+        print('calculate_similarity sol 3')
         mac_df = pd.read_csv('mac_df.csv', header=0, names=['MAC', 'via_to_list'])
         gps_scooter = pd.read_csv("scooter_and_via_to.csv", header=0, names=['line_id', 'via_to_list'])
         gps_scooter['high_similarity_mac'] = ''
@@ -231,13 +294,13 @@ if __name__ == '__main__':
             print(line_id)
             # Convert 'via_to_list' a list
             list_via_to_scooter = record['via_to_list'].strip("[]").replace("'", "").split(', ')
-            mac_df[line_id] = mac_df.apply(lambda x: calculate_similarity(x), axis=1)
-            # mac_df[line_id] = mac_df['via_to_list'].apply(lambda x: calculate_similarity(x))
+            mac_df[line_id] = mac_df.apply(lambda x: calculate_similarity3(x), axis=1)
+
             # Store the highest mac matching and the its grade
             maxi = mac_df[line_id].max()
             gps_scooter.at[index, 'high_similarity_grade'] = maxi
             gps_scooter.at[index, 'high_similarity_mac'] = list(mac_df[mac_df[line_id] == maxi]['MAC'])
-            # mac_df.sort_values(by=line_id, ascending=False, inplace=True)
+
         gps_scooter = gps_scooter[gps_scooter['high_similarity_grade'] > 4]
         mac_df.to_csv('res.csv')
         gps_scooter.to_csv('res_sco.csv')
@@ -245,9 +308,33 @@ if __name__ == '__main__':
     if what_to_run['find_Mac_route']:
         print('find_Mac_route')
         find_Mac_route()
-    if what_to_run['test_Nordeo_Blv']:
+    if what_to_run['test_Nordeo_Blv'][0]:
         print('test_Nordeo_Blv')
-        test_Mac_with_its_via_to('file2020-06-01_uni.csv', 'mac_df_all.csv')
-        bt = pd.read_csv('mac_df_all.csv')
+        if what_to_run['test_Nordeo_Blv'][1]:
+            test_Mac_with_its_via_to('file2020-06-01_uni.csv', 'mac_df_all.csv')
+        bt = pd.read_csv('mac_df_all.csv', header=0, names=['MAC', 'via_to_list'])
         Nordeo_Blv_links = ['TA2TA257', 'TA13TA2', 'TA13TA39', 'TA262TA39', 'TA262TA78', 'TA137TA78']
+        Nordeo_Blv_links.reverse()
         bt.apply(lambda x: test_Nordeo_Blv(x), axis=1)
+    if what_to_run['calculate_similarity'] == 'sol 4':
+        print('calculate_similarity sol 4')
+        mac_df = pd.read_csv('mac_df.csv', header=0, names=['MAC', 'via_to_list'])
+        gps_scooter = pd.read_csv("scooter_and_via_to.csv", header=0, names=['line_id', 'via_to_list'])
+        gps_scooter['high_similarity_mac'] = ''
+        gps_scooter['high_similarity_grade'] = 0
+        for index, record in gps_scooter.iterrows():
+            line_id = record['line_id']
+            print(line_id)
+            # Convert 'via_to_list' a list
+            list_via_to_scooter = record['via_to_list'].strip("[]").replace("'", "").split(', ')
+            # The length of list_via_to_scooter will be used in calculate_similarity4 method
+            len_list_via_to_scooter = len(list_via_to_scooter)
+            # mac_df[line_id] = mac_df.apply(lambda x: calculate_similarity4(x), axis=1)
+            # Store the highest mac matching and the its grade
+            maxi = mac_df[line_id].max()
+            gps_scooter.at[index, 'high_similarity_grade'] = maxi
+            gps_scooter.at[index, 'high_similarity_mac'] = list(mac_df[mac_df[line_id] == maxi]['MAC'])
+            # mac_df.sort_values(by=line_id, ascending=False, inplace=True)
+        gps_scooter = gps_scooter[gps_scooter['high_similarity_grade'] > 0]
+        mac_df.to_csv('res_4.csv')
+        gps_scooter.to_csv('res_sco_4.csv')

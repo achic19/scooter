@@ -1,8 +1,22 @@
 import pandas as pd
-
+import numpy as np
 pd.set_option('display.max_columns', 10)
 pd.set_option('display.width', 1000)
-# 25.5.2021
+# 1.6.2021
+test =np.array()
+np.append(test,1)
+print(test)
+# 27.5.2021
+# Operating System List
+# systems = ['Windows', 'macOS', 'Linux']
+# print('Original List:', systems)
+#
+# # List Reverse
+# systems.reverse()
+#
+# # updated list
+# print('Updated List:', systems)
+
 
 # 20.5.2021
 # list_1 = ['TA135TA146', 'TA76TA77', 'TA111TA134', 'TA2TA257', 'TA2TA257', 'TA122TA251', 'TA149TA150', 'TA124TA185',
