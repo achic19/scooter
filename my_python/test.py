@@ -1,11 +1,36 @@
 import pandas as pd
 import numpy as np
+
 pd.set_option('display.max_columns', 10)
 pd.set_option('display.width', 1000)
+# 9/6/2021
+
+# 8/6/2021
+# print('Mac %s : the score is %i' % ('09E997D97192', 7))
+
+# time_diff = pd.DataFrame(columns=['mac_ind', 'scooter_ind', 'time_diff'])
+# time_diff = time_diff.append({'mac_ind': 3, 'scooter_ind': 5, 'time_diff': 7}, ignore_index=True)
+# time_diff = time_diff.append({'mac_ind': 3, 'scooter_ind': 5, 'time_diff': 7}, ignore_index=True)
+# print(time_diff)
+# 3/6/2021
+# Python program to illustrate the intersection
+# of two lists, sublists and use of filter()
+# Python program to illustrate the intersection
+# # of two lists in most simple way
+# def intersection(lst1, lst2):
+# 	lst3 = [value for value in lst1 if value in lst2]
+# 	return lst3
+#
+# # Driver Code
+# lst1 = [4, 9, 1, 17, 11, 26, 28, 54, 69]
+# lst2 = [9, 9, 74, 21, 45, 11, 63, 28, 26]
+# print(intersection(lst1, lst2))
+
+
 # 1.6.2021
-test =np.array()
-np.append(test,1)
-print(test)
+# test =np.array()
+# np.append(test,1)
+# print(test)
 # 27.5.2021
 # Operating System List
 # systems = ['Windows', 'macOS', 'Linux']

@@ -14,8 +14,8 @@ class Gps_trajectories:
         self.df = pd.read_csv(csv_file_path)
         arcpy.env.workspace = os.path.join(os.getcwd(), self.file_folder)
         # Add speed data for each GPS point
-        # ToDo remove it as a comment
-        # self.__calc_speed()
+
+        self.__calc_speed()
 
     @staticmethod
     def create_buffer_around(network_links_gis: str):

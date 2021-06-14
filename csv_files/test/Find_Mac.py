@@ -33,6 +33,7 @@ def test_Mac_with_its_via_to(bt_file, file_to_save='mac_df.csv'):
     mac_df = pd.DataFrame(columns=['via_to_list', 'time'], index=bt['MAC'].unique())
     for group_name, group in bt.groupby('MAC'):
         print(group_name)
+        group = group.sort_values(by=['LASTDISCOTS']).reset_index(drop=True)
         temp_list = list(group['via_to_uni'])
         # Save only macs that traverse more than four links
         if len(temp_list) > 3:
@@ -44,45 +45,54 @@ def test_Mac_with_its_via_to(bt_file, file_to_save='mac_df.csv'):
 
 def test_scooter_with_its_via_to():
     print('test_scooter_with_its_via_to')
-    gps_scooter = pd.read_csv('file_with_link_clean.csv')
-    sco_df = pd.DataFrame(columns=['via_to_list', 'time'], index=gps_scooter['line_id'].unique())
+    gps_scooter_temp = pd.read_csv('file_with_link_clean.csv')
+    sco_df = pd.DataFrame(columns=['via_to_list', 'time'], index=gps_scooter_temp['line_id'].unique())
     # The code iterates over the GPS trajectories of each scooter route and
-    # saves the "via_to" link when the "via link" changes.
-    for i, (name, group) in enumerate(gps_scooter.groupby('line_id')):
-        print(name)
-        group_sorted = group.sort_values(by=['timestamp']).reset_index(drop=True)
-        via_to_list = []
-        time = []
-        time_temp = []
-        for index, record in group_sorted.iterrows():
-            if index == 0:
-                # Edge case where the first and the second index is different and the group with more one element.
-                if group_sorted['via_to'].size != 1 and group_sorted.iloc[index + 1]['via_to'] != group_sorted[index][
-                    'via_to']:
-                    via_to_list.append(record['via_to'])
-                    time.append(record['timestamp'])
-                continue
-            pre_index = group_sorted.iloc[index - 1]
-            cur_via_to = pre_index['via_to']
-            # Save the time to calculate average later
-            time_temp.append(record['timestamp'])
-            if record['via_to'] == cur_via_to:
-                continue
+    # saves the "via_to" link when the "via link" changes and average time of timestamp .
+    for j, (name_group, group_scooter) in enumerate(gps_scooter_temp.groupby('line_id')):
+        print(name_group)
+        scooter_id_group_sorted = group_scooter.sort_values(by=['timestamp']).reset_index(drop=True)
+        len_group_sorted = scooter_id_group_sorted.shape[0]
+        # if scooter users with less than 4 records (GPS points) continue
+        if len_group_sorted < 4:
+            continue
+        via_to_list, time, time_temp = [], [], []
+        flag = True
+        for index_gps, record_gps in scooter_id_group_sorted.iterrows():
+            if flag:
+                # if flag is true a new bunch of gps records are initialized
+                via_to_list.append(record_gps['via_to'])
+                # Edge case when only one gps point is have a certain via_to
+                if index_gps == len_group_sorted - 1 or scooter_id_group_sorted['via_to'][index_gps + 1] != \
+                        scooter_id_group_sorted['via_to'][index_gps]:
+                    time.append(record_gps['timestamp'])
+                else:
+                    time_temp.append(record_gps['timestamp'])
+                    # Edge case when the bunch include only  the last two gps points
+                    if index_gps + 1 == len_group_sorted - 1:
+                        time_temp.append(scooter_id_group_sorted.iloc[index_gps + 1]['timestamp'])
+                        time.append(sum(time_temp) / 2)
+                        break
+                    flag = False
             else:
-                via_to_list.append(pre_index['via_to'])
-                # Calculate  average timestamp for all points with the same 'via_to' and start new list of timestamp for
-                # the new 'via_to'
-                time.append(sum(time_temp) / len(time_temp))
-                time_temp = [record['timestamp']]
 
-            # A case where the last index is different from the previous one or group with one element.
-        if group_sorted['via_to'].size == 1 or group_sorted['via_to'].iloc[-1] != group_sorted['via_to'].iloc[-2]:
-            via_to_list.append(group_sorted['via_to'].iloc[-1])
-            time.append(group_sorted['timestamp'].iloc[-1])
-
+                next_rec = scooter_id_group_sorted.iloc[index_gps + 1]
+                time_temp.append(record_gps['timestamp'])
+                # if the next point with same via to save the time
+                if record_gps['via_to'] == next_rec['via_to']:
+                    # Edge case when the next point is also the last point in the list
+                    if index_gps + 1 == len_group_sorted - 1:
+                        time_temp.append(next_rec['timestamp'])
+                        time.append(sum(time_temp) / len(time_temp))
+                        break
+                else:
+                    # if the next point is not with the current via to point, close the bunch and start a new one
+                    time.append(sum(time_temp) / len(time_temp))
+                    time_temp = []
+                    flag = True
         if len(via_to_list) > 3:
-            sco_df.at[name, 'via_to_list'] = via_to_list
-            sco_df.at[name, 'time'] = time
+            sco_df.at[name_group, 'via_to_list'] = via_to_list
+            sco_df.at[name_group, 'time'] = time
     sco_df = sco_df[sco_df['via_to_list'].notna()]
     sco_df.to_csv("scooter_and_via_to.csv")
 
@@ -120,46 +130,80 @@ def calculate_similarity3(x):
     return grade
 
 
-# def calculate_similarity4(x):
-#     # Get the mac links as link
-#     x = x['via_to_list']
-#     array_via_to_mac = np.array(x.strip("[]").replace("'", "").split(', '))
-#     # if there are at least three identical links between the user scooter to the mac user run the
-#     # rest of the code
-#     if len(set(array_via_to_mac) & set(list_via_to_scooter)) < 3:
-#         return 0
-#     else:
-#         ind_scooter = 0
-#         ind_mac_const = 0
-#         grade = 0
-#         while ind_scooter < len_list_via_to_scooter:
-#             link = list_via_to_scooter[ind_scooter]
-#             inds_mac = np.where(array_via_to_mac == link)[0]
-#             inds_mac = np.where(inds_mac > ind_mac_const)
-#             for ind_mac in inds_mac:
-#                     if
-#             temp_grade = 1
-#             flag = True
-#             while flag:
-#                 ind_scooter += 1
-#                 ind_mac += 1
-#                 if list_via_to_mac[ind_mac] == list_via_to_scooter[ind_scooter] and ind_mac < len(list_via_to_mac):
-#                     temp_grade += 1
-#                 else:
-#                     flag = False
-#                     if temp_grade > 2:
-#                         grade += temp_grade
-#                         ind_mac_const = ind_mac
-#
-#         for link in list_via_to_scooter:
-#             # in each iteration, it  searches the current link in the  'list_via_to_mac' list (from the specified index to the end).
-#             # When the link is detected in the 'list_via_to_mac' list, the code updates the grade and  index.
-#             try:
-#                 index = list_via_to_mac.index(link, index) + 1
-#                 grade += 1
-#             except ValueError:
-#                 continue
-#     return grade
+def calculate_similarity4(x):
+    # input
+    via_to_mac = np.array(x['via_to_list'].strip("[]").replace("'", "").split(', '))
+    time_mac = np.array(x['time'].strip("[]").split(', ')).astype(float)
+    # Length data
+    len_mac_list = len(via_to_mac)
+
+    if len(set(via_to_mac) & set(via_to_scooter)) < 3 or not (
+            (time_mac[0] - 300) <= time_scooter[0] <= (time_mac[-1] + 300) or ((time_scooter[0] - 300) <= time_mac[0] <=
+                                                                               (time_scooter[-1] + 300))):
+        print('Mac %s : the score is %i' % (x['MAC'], 0))
+        return 0
+    # Find for each link in the scooters links list the same link's index/dices (if any) in the second(mac link) list
+    matching_list = list(
+        map(lambda itm: [itm[1], itm[0], list(np.where(np.array(via_to_mac) == itm[1])[0])], enumerate(via_to_scooter)))
+    # Remove items with no pair from the second list
+    result = [pair for pair in matching_list if len(pair[2]) > 0]
+    # Examine all the matching links in the results to find sequences
+    # i - control matching links to examine ,
+    # min_mac_ind_to_check f-  ensures that the code does not look backward to the detected  sequences
+    i = 0
+    score = 0
+    min_mac_ind_to_check = 0
+    while i < len(result):
+        time_diff = pd.DataFrame(columns=['mac_ind', 'scooter_ind', 'time_diff'])
+        i_result = result[i]
+        mac_result = i_result[2]
+        scooter_ind_local = i_result[1]
+        #  The for loop is intended to handle situations where there are more than one match for a certain link.
+        #  In that case, the link with the shortest time difference is selected.
+        #  Here the algorithm examines the first link in the sequence.
+        for mac_ind in mac_result:
+            # In two case - continue
+            # 1 - When the tested index is found at the end of the via_to,it cannot be the beginning of the sequence.
+            # 2 - When the tested index is prior to the index of the last sequence.
+            if mac_ind > len_mac_list - 2 or mac_ind < min_mac_ind_to_check:
+                continue
+            time_diff_temp = abs(time_scooter[scooter_ind_local] - time_mac[mac_ind])
+            if time_diff_temp > 600:
+                continue
+            time_diff = time_diff.append(
+                {'mac_ind': mac_ind, 'scooter_ind': scooter_ind_local, 'time_diff': time_diff_temp},
+                ignore_index=True)
+        # If no matching scooter link with a difference of less than 10 minutes (600 seconds) is found,
+        # move on to the next scooter link.
+        if time_diff.empty:
+            i += 1
+            continue
+        best_pair = np.argmin(time_diff['time_diff'])
+        temp_grade = 1
+        in_loop = True
+        # Check the next links in respect to the indices of matching links.
+        scooter_ind_local = int(time_diff.loc[best_pair]['scooter_ind'] + 1)
+        mac_ind_local = int(time_diff.loc[best_pair]['mac_ind'] + 1)
+        while in_loop:
+            # cases to stop the while loop -the indices exceed the list bounds, next links are not the same,
+            # the time difference exceeds the limit of 600 seconds
+            if scooter_ind_local < len_scooter_list and mac_ind_local < len_mac_list and via_to_scooter[
+                scooter_ind_local] == via_to_mac[mac_ind_local] and abs(
+                time_scooter[scooter_ind_local] - time_mac[mac_ind_local]) < 300:
+                temp_grade += 1
+                scooter_ind_local += 1
+                mac_ind_local += 1
+            else:
+                if temp_grade > 2:
+                    # Sequence is found - There are more than three consecutive links
+                    score += temp_grade
+                    i += temp_grade
+                    min_mac_ind_to_check = mac_ind_local
+                else:
+                    i += 1
+                in_loop = False
+    print('Mac %s : the score is %i' % (x['MAC'], score))
+    return score
 
 
 def find_Mac_route():
@@ -176,7 +220,7 @@ def find_Mac_route():
     # Join to the links_network
     arcpy.env.workspace = os.getcwd()
 
-    mac_array = ['61B0AD47E1DE', '017FD0527EF8']
+    mac_array = ['017FD035A0F4']
     for mac in mac_array:
         print(mac)
         # if the filter_field  is 'line_id' the filter_id is int
@@ -212,8 +256,8 @@ def test_Nordeo_Blv(x):
 
 
 if __name__ == '__main__':
-    what_to_run = {'test_Mac_with_its_via_to': False, 'test_scooter_with_its_via_to': True, 'calculate_similarity':
-        False, 'find_Mac_route': False, 'test_Nordeo_Blv': [False, False]}
+    what_to_run = {'test_Mac_with_its_via_to': False, 'test_scooter_with_its_via_to': False, 'calculate_similarity':
+        False, 'find_Mac_route': True, 'test_Nordeo_Blv': [False, False]}
     # test_unidirectional()
     # input data
     # test_filter_mac()
@@ -318,18 +362,19 @@ if __name__ == '__main__':
         bt.apply(lambda x: test_Nordeo_Blv(x), axis=1)
     if what_to_run['calculate_similarity'] == 'sol 4':
         print('calculate_similarity sol 4')
-        mac_df = pd.read_csv('mac_df.csv', header=0, names=['MAC', 'via_to_list'])
-        gps_scooter = pd.read_csv("scooter_and_via_to.csv", header=0, names=['line_id', 'via_to_list'])
+        mac_df = pd.read_csv('mac_df.csv', header=0, names=['MAC', 'via_to_list', 'time'])
+        gps_scooter = pd.read_csv("scooter_and_via_to.csv", header=0, names=['line_id', 'via_to_list', 'time'])
         gps_scooter['high_similarity_mac'] = ''
         gps_scooter['high_similarity_grade'] = 0
         for index, record in gps_scooter.iterrows():
             line_id = record['line_id']
             print(line_id)
             # Convert 'via_to_list' a list
-            list_via_to_scooter = record['via_to_list'].strip("[]").replace("'", "").split(', ')
+            via_to_scooter = np.array(record['via_to_list'].strip("[]").replace("'", "").split(','))
+            time_scooter = np.array(record['time'].strip("[]").split(', ')).astype(float)
             # The length of list_via_to_scooter will be used in calculate_similarity4 method
-            len_list_via_to_scooter = len(list_via_to_scooter)
-            # mac_df[line_id] = mac_df.apply(lambda x: calculate_similarity4(x), axis=1)
+            len_scooter_list = len(via_to_scooter)
+            mac_df[line_id] = mac_df.apply(lambda x: calculate_similarity4(x), axis=1)
             # Store the highest mac matching and the its grade
             maxi = mac_df[line_id].max()
             gps_scooter.at[index, 'high_similarity_grade'] = maxi
