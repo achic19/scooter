@@ -3,6 +3,7 @@ import os
 import arcpy
 import pandas as pd
 import numpy as np
+from _datetime import datetime
 
 pd.set_option('display.max_columns', 10)
 pd.set_option('display.width', 1000)
@@ -132,15 +133,15 @@ def calculate_similarity3(x):
 
 def calculate_similarity4(x):
     # input
+
     via_to_mac = np.array(x['via_to_list'].strip("[]").replace("'", "").split(', '))
     time_mac = np.array(x['time'].strip("[]").split(', ')).astype(float)
     # Length data
     len_mac_list = len(via_to_mac)
 
     if len(set(via_to_mac) & set(via_to_scooter)) < 3 or not (
-            (time_mac[0] - 300) <= time_scooter[0] <= (time_mac[-1] + 300) or ((time_scooter[0] - 300) <= time_mac[0] <=
-                                                                               (time_scooter[-1] + 300))):
-        print('Mac %s : the score is %i' % (x['MAC'], 0))
+            (time_mac[0] - 600) <= time_scooter[0] <= (time_mac[-1] + 600) or ((time_scooter[0] - 600) <= time_mac[0] <=
+                                                                               (time_scooter[-1] + 600))):
         return 0
     # Find for each link in the scooters links list the same link's index/dices (if any) in the second(mac link) list
     matching_list = list(
@@ -189,7 +190,7 @@ def calculate_similarity4(x):
             # the time difference exceeds the limit of 600 seconds
             if scooter_ind_local < len_scooter_list and mac_ind_local < len_mac_list and via_to_scooter[
                 scooter_ind_local] == via_to_mac[mac_ind_local] and abs(
-                time_scooter[scooter_ind_local] - time_mac[mac_ind_local]) < 300:
+                time_scooter[scooter_ind_local] - time_mac[mac_ind_local]) < 600:
                 temp_grade += 1
                 scooter_ind_local += 1
                 mac_ind_local += 1
@@ -202,7 +203,8 @@ def calculate_similarity4(x):
                 else:
                     i += 1
                 in_loop = False
-    print('Mac %s : the score is %i' % (x['MAC'], score))
+    if score > 2:
+        print('Mac %s : the score is %i' % (x['MAC'], score))
     return score
 
 
@@ -256,11 +258,13 @@ def test_Nordeo_Blv(x):
 
 
 if __name__ == '__main__':
-    what_to_run = {'test_Mac_with_its_via_to': False, 'test_scooter_with_its_via_to': False, 'calculate_similarity':
-        False, 'find_Mac_route': True, 'test_Nordeo_Blv': [False, False]}
-    # test_unidirectional()
-    # input data
-    # test_filter_mac()
+    what_to_run = {'unidirectional': False, 'filter_mac': False, 'test_Mac_with_its_via_to': False,
+                   'test_scooter_with_its_via_to': False, 'calculate_similarity': 'sol 4', 'find_Mac_route': False,
+                   'test_Nordeo_Blv': [False, False]}
+    if what_to_run['unidirectional']:
+        test_unidirectional()
+    if what_to_run['filter_mac']:
+        test_filter_mac()
     # New data frame For each Mac with its via_to's
     if what_to_run['test_Mac_with_its_via_to']:
         test_Mac_with_its_via_to('bt_in_gps_scooter.csv')
@@ -367,14 +371,20 @@ if __name__ == '__main__':
         gps_scooter['high_similarity_mac'] = ''
         gps_scooter['high_similarity_grade'] = 0
         for index, record in gps_scooter.iterrows():
+            print("Progress  {:2.1%}".format(index / gps_scooter.shape[0]))
             line_id = record['line_id']
-            print(line_id)
             # Convert 'via_to_list' a list
-            via_to_scooter = np.array(record['via_to_list'].strip("[]").replace("'", "").split(','))
+            via_to_scooter = np.array(record['via_to_list'].strip("[]").replace("'", "").split(', '))
+            # ToDo remonve for real code
+            if len(via_to_scooter) < 10:
+                continue
+            print(
+                'In {} ,the number of links are {} which start at {}'.format(line_id, len(via_to_scooter),
+                                                                             datetime.now()))
             time_scooter = np.array(record['time'].strip("[]").split(', ')).astype(float)
             # The length of list_via_to_scooter will be used in calculate_similarity4 method
             len_scooter_list = len(via_to_scooter)
-            mac_df[line_id] = mac_df.apply(lambda x: calculate_similarity4(x), axis=1)
+            mac_df[line_id] = mac_df.apply(calculate_similarity4, axis=1)
             # Store the highest mac matching and the its grade
             maxi = mac_df[line_id].max()
             gps_scooter.at[index, 'high_similarity_grade'] = maxi

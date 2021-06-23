@@ -6,7 +6,7 @@ import pandas as pd
 
 
 class Gps_trajectories:
-    def __init__(self, csv_file_path: str):
+    def __init__(self, csv_file_path: str, is_speed=False):
         """
         :param csv_file_path: to transform to DBF. The file should contain coordinates
         """
@@ -14,8 +14,8 @@ class Gps_trajectories:
         self.df = pd.read_csv(csv_file_path)
         arcpy.env.workspace = os.path.join(os.getcwd(), self.file_folder)
         # Add speed data for each GPS point
-
-        self.__calc_speed()
+        if is_speed:
+            self.__calc_speed()
 
     @staticmethod
     def create_buffer_around(network_links_gis: str):
@@ -88,8 +88,8 @@ class Gps_trajectories:
         :param links_file_folder: Help us to
         :return:
         """
-        # ToDo remove it as a comment
-        # self.__remove_points_near_intersection(links_file_folder + '/buffer_intersection.shp')
+
+        self.__remove_points_near_intersection(links_file_folder + '/buffer_intersection.shp')
         self.__spatial_join(links_file_folder + '/links_network.shp')
 
     def __remove_points_near_intersection(self, buffer_file_path):

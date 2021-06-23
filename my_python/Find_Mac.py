@@ -3,20 +3,53 @@ import os
 import arcpy
 import pandas as pd
 import numpy as np
+from _datetime import datetime
 
 pd.set_option('display.max_columns', 10)
 pd.set_option('display.width', 1000)
 
 
-class FindMac:
-    def __init__(self, path_mac):
-        self.path_mac = path_mac
-        self.unidirectional()
-        self.filter_mac()
-        # New data frame For each Mac with its via_to's
+class MacByFrequency:
+    """
+    This class presents for macs the matching scooter ids and the number of matching links
+    """
 
-        self.mac_with_its_via_to()
-        self.scooter_with_its_via_to()
+    def __init__(self):
+        self.new_dic = {}
+
+    def count_line_id(self, x, date):
+        high_similarity_mac = np.array(x['high_similarity_mac'].strip("[]").replace("'", "").split(', '))
+        for mac in high_similarity_mac:
+            if mac not in self.new_dic:
+                self.new_dic[mac] = [[], []]
+            self.new_dic[mac][0].append(date + '_' + str(x['line_id']))
+            self.new_dic[mac][1].append(x['high_similarity_grade'])
+
+    def from_dic_to_df(self, path):
+        """
+        :param path:
+        :return:
+        """
+        new_df = pd.DataFrame(data=self.new_dic.values(), index=self.new_dic.keys(), columns=['line_ids', 'grades'])
+        new_df['sum'] = new_df['grades'].map(sum)
+        new_df.to_csv(path)
+
+
+class FindMac:
+    def __init__(self, path_mac, from_scratch):
+        """
+        It matchs  the scooter  its mac kept in bt mac file
+        :param path_mac:
+        :param from_scratch: to decide if the the process should from scratch
+        """
+        self.path_mac = path_mac
+        if from_scratch:
+            self.unidirectional()
+            self.filter_mac()
+            # New data frame For each Mac with its via_to's
+
+            self.mac_with_its_via_to()
+            self.scooter_with_its_via_to()
 
         # For each Scooter route calculate similarity to each mac
 
@@ -27,13 +60,16 @@ class FindMac:
         gps_scooter['high_similarity_grade'] = 0
         for index, record in gps_scooter.iterrows():
             line_id = record['line_id']
-            print(line_id)
+            print("Progress  {:2.1%}".format(index / gps_scooter.shape[0]))
             # Convert 'via_to_list' a list
-            self.via_to_scooter = np.array(record['via_to_list'].strip("[]").replace("'", "").split(','))
+            self.via_to_scooter = np.array(record['via_to_list'].strip("[]").replace("'", "").split(', '))
             self.time_scooter = np.array(record['time'].strip("[]").split(', ')).astype(float)
             # The length of list_via_to_scooter will be used in calculate_similarity4 method
             self.len_scooter_list = len(self.via_to_scooter)
-            mac_df[line_id] = mac_df.apply(lambda x: self.calculate_similarity4(x), axis=1)
+            print(
+                'In {} ,the number of links are {} which start at {}'.format(line_id, len(self.via_to_scooter),
+                                                                             datetime.now()))
+            mac_df[line_id] = mac_df.apply(self.calculate_similarity4, axis=1)
             # Store the highest mac matching and the its grade
             maxi = mac_df[line_id].max()
             gps_scooter.at[index, 'high_similarity_grade'] = maxi
@@ -66,7 +102,6 @@ class FindMac:
         bt = pd.read_csv('bt_in_gps_scooter.csv')
         mac_df = pd.DataFrame(columns=['via_to_list', 'time'], index=bt['MAC'].unique())
         for group_name, group in bt.groupby('MAC'):
-            print(group_name)
             group = group.sort_values(by=['LASTDISCOTS']).reset_index(drop=True)
             temp_list = list(group['via_to_uni'])
             # Save only macs that traverse more than four links
@@ -83,7 +118,6 @@ class FindMac:
         # The code iterates over the GPS trajectories of each scooter route and
         # saves the "via_to" link when the "via link" changes and average time of timestamp .
         for j, (name_group, group_scooter) in enumerate(gps_scooter_temp.groupby('line_id')):
-            print(name_group)
             scooter_id_group_sorted = group_scooter.sort_values(by=['timestamp']).reset_index(drop=True)
             len_group_sorted = scooter_id_group_sorted.shape[0]
             # if scooter users with less than 4 records (GPS points) continue
@@ -123,7 +157,7 @@ class FindMac:
                         time.append(sum(time_temp) / len(time_temp))
                         time_temp = []
                         flag = True
-            if len(via_to_list) > 5:
+            if len(via_to_list) > 3:
                 sco_df.at[name_group, 'via_to_list'] = via_to_list
                 sco_df.at[name_group, 'time'] = time
         sco_df = sco_df[sco_df['via_to_list'].notna()]
@@ -140,7 +174,6 @@ class FindMac:
                 (time_mac[0] - 300) <= self.time_scooter[0] <= (time_mac[-1] + 300) or (
                 (self.time_scooter[0] - 300) <= time_mac[0] <=
                 (self.time_scooter[-1] + 300))):
-            print('Mac %s : the score is %i' % (x['MAC'], 0))
             return 0
         # Find for each link in the scooters links list the same link's index/dices (if any) in the second(mac link) list
         matching_list = list(
@@ -169,7 +202,7 @@ class FindMac:
                 if mac_ind > len_mac_list - 2 or mac_ind < min_mac_ind_to_check:
                     continue
                 time_diff_temp = abs(self.time_scooter[scooter_ind_local] - time_mac[mac_ind])
-                if time_diff_temp > 600:
+                if time_diff_temp > 300:
                     continue
                 time_diff = time_diff.append(
                     {'mac_ind': mac_ind, 'scooter_ind': scooter_ind_local, 'time_diff': time_diff_temp},
@@ -203,5 +236,46 @@ class FindMac:
                     else:
                         i += 1
                     in_loop = False
-        print('Mac %s : the score is %i' % (x['MAC'], score))
+        if score > 2:
+            print('Mac %s : the score is %i' % (x['MAC'], score))
         return score
+
+    @staticmethod
+    def find_mac_route(macs, date):
+        """
+        It finds the route of the specified macs in :param macs: in a :param date:
+        :return:
+        """
+        arcpy.env.workspace = os.getcwd()
+        arcpy.env.qualifiedFieldNames = False
+        # filter_field = 'line_id' or 'via_to_uni' 'MAC
+        filter_field = 'MAC'
+        # join_field = "via_to" or 'via_to_uni'
+        join_field = "via_to_uni"
+        # 'file_with_link_clean.csv'/'bt_in_gps_scooter.csv'
+        path_to_file = r'csv_files\dates/' + date + '/bt_in_gps_scooter.csv'
+        link_network = r'MyProject10\links_network.shp'
+
+        # Join to the links_network
+        arcpy.env.workspace = os.getcwd()
+
+        mac_array = macs
+        for mac in mac_array:
+            print(mac)
+            # if the filter_field  is 'line_id' the filter_id is int
+            filtered_network = os.path.join(r'csv_files\macs_to_test', date + '_' + mac + '.shp')
+            filtered_file_name = os.path.join(r'csv_files\macs_to_test', date + '_' + mac + '.csv')
+            # Filter _file
+            file = pd.read_csv(path_to_file)
+            filtered_file = file[file[filter_field] == mac]
+            filtered_file = filtered_file[
+                ['MAC', 'LASTDISCOTS', 'LASTDISCOTS_GMT', 'via_to_uni']]
+            filtered_file['LASTDISCOTS_GMT'] = filtered_file['LASTDISCOTS_GMT'].apply(lambda x: x.replace(" ", "_"))
+            filtered_file.to_csv(filtered_file_name)
+
+            res = arcpy.AddJoin_management(link_network, "via_to", filtered_file_name, join_field,
+                                           join_type='KEEP_COMMON')
+            # Alter the properties of a non nullable, short data type field to become a text field
+            if arcpy.Exists(filtered_network):
+                arcpy.Delete_management(filtered_network)
+            arcpy.CopyFeatures_management(res, filtered_network)

@@ -3,8 +3,12 @@ import numpy as np
 
 pd.set_option('display.max_columns', 10)
 pd.set_option('display.width', 1000)
-# 9/6/2021
+# 16/6/2021
+temp_list= []
+str = '7582'
 
+temp_list.append(str[str.index('['):])
+print(temp_list)
 # 8/6/2021
 # print('Mac %s : the score is %i' % ('09E997D97192', 7))
 
