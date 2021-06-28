@@ -3,12 +3,20 @@ import numpy as np
 
 pd.set_option('display.max_columns', 10)
 pd.set_option('display.width', 1000)
-# 16/6/2021
-temp_list= []
-str = '7582'
+# 28/06/2121
+pp = ['Unnamed: 0', 'Unnamed: 0.1', 'Unnamed: 0.1.1', 'TOKENS', 'PK_UID', 'MAC', 'FROMUNITC', 'VIAUNITC', 'TOUNITC', 'DESTUNITC', 'OPENTS', 'LASTDISCOTS', 'CLOSETS', 'TOLASTDISCOTS', 'OPENTS_GMT', 'LASTDISCOTS_GMT', 'CLOSETS_GMT', 'TOLASTDISCOTS_GMT', 'STDCALC', 'AVGCALC', 'SECONDSSTD', 'UNITSSTD', 'ROWSTATUS', 'TRIPTIME', 'isr_time', 'date', 'via_to', 'via_to_uni', 'user']
+for p in pp:
+    if 'Unnamed' in p:
+        print('DELETE_' + p)
+    else:
+        print(p)
 
-temp_list.append(str[str.index('['):])
-print(temp_list)
+# 16/6/2021
+# temp_list= []
+# str = '7582'
+#
+# temp_list.append(str[str.index('['):])
+# print(temp_list)
 # 8/6/2021
 # print('Mac %s : the score is %i' % ('09E997D97192', 7))
 

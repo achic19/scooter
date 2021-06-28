@@ -109,7 +109,7 @@ def calculate_similarity_sol_2(x):
 
 
 def calculate_similarity3(x):
-    # Todo prove the '4' value
+
     # Get the mac links as link
     x = x['via_to_list']
     list_via_to_mac = x.strip("[]").replace("'", "").split(', ')
@@ -375,7 +375,7 @@ if __name__ == '__main__':
             line_id = record['line_id']
             # Convert 'via_to_list' a list
             via_to_scooter = np.array(record['via_to_list'].strip("[]").replace("'", "").split(', '))
-            # ToDo remonve for real code
+
             if len(via_to_scooter) < 10:
                 continue
             print(
