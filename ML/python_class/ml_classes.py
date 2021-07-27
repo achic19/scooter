@@ -5,36 +5,74 @@ from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
 from sklearn.neural_network import MLPClassifier
 from sklearn.ensemble import IsolationForest
 import math
+import pickle
+
+
+class Analysis:
+    """
+    Analysis of BT data with users classification.
+    """
+
+    def __init__(self, bt_file: str, analysis_file: str):
+        """
+        :param bt_file: to be  analysed
+        :param analysis_file: to store the result (each sheet with new analysis)
+        """
+        self.pd = pd.read_csv(bt_file)
+        self.analysis_file = analysis_file
+
+    def number_for_each_users(self):
+        print('number_for_each_users')
+        results = pd.DataFrame(self.pd.groupby('user').count()['via_to'])
+        results.to_excel(self.analysis_file, sheet_name='number_for_each_users')
+
+    def number_per_link(self):
+        print('number_per_link')
+        results = pd.DataFrame(self.pd.groupby(['user', 'via_to_uni']).count()['via_to'])
+        results.to_excel(self.analysis_file, sheet_name='number_per_link')
 
 
 class BT:
-    def __init__(self, df_all: str, users: list, data_columns: list, classifier):
+    """
+       The class is responsible for handling the machine learning aspects of BT data -
+        training, testing, validation, and predilection.
+    """
+
+    def __init__(self, data_columns: list):
         """
-        Apply Machine Learning to BT data according to the :param classifier
-        :param df_all: samples file path
-        :param users: 1:car, 2:scooter,3:pedestrian
         :param data_columns: helps to eliminate superfluous information
         """
-        # for each user divide  data to train, validate and test
-        df_all = pd.read_csv(df_all)
-        df = df_all[df_all['user'] == users[0]][data_columns]
-        train, validate, test = np.split(df.sample(frac=1), [int(.6 * len(df)), int(.8 * len(df))])
 
+        self.data_columns = data_columns
+        self.filename = 'output_files/ml.sav'
+
+    def training(self, users: list, df_all: str, classifier):
+        """
+        Apply Machine Learning to BT samples data according to the
+        :param classifier
+        :param df_all: samples file path
+        :param users: 1:car, 2:scooter,3:pedestrian
+        """
+        df_all = pd.read_csv(df_all)
+
+        # for each user divide  data to train, validate and test
+        df = df_all[df_all['user'] == users[0]][self.data_columns]
+        train, validate, test = np.split(df.sample(frac=1), [int(.6 * len(df)), int(.8 * len(df))])
         for user in users[1:]:
-            df = df_all[df_all['user'] == user][data_columns]
+            df = df_all[df_all['user'] == user][self.data_columns]
             train_0, validate_0, test_0 = np.split(df.sample(frac=1), [int(.6 * len(df)), int(.8 * len(df))])
             train = train.append(train_0)
             validate = validate.append(validate_0)
             test = test.append(test_0)
 
         # data for ML
-        X = train[data_columns[:-1]].to_numpy()
-        y = train[data_columns[-1]].to_numpy()
+        X = train[self.data_columns[:-1]].to_numpy()
+        y = train[self.data_columns[-1]].to_numpy()
 
         # test for ML
         test = validate.append(test)
-        X_test = test[data_columns[:-1]].to_numpy()
-        y_true = test[data_columns[-1]].to_numpy()
+        X_test = test[self.data_columns[:-1]].to_numpy()
+        y_true = test[self.data_columns[-1]].to_numpy()
 
         # ML
         clf = classifier
@@ -49,8 +87,22 @@ class BT:
         if isinstance(classifier, RandomForestClassifier):
             print('feature_importances = {}'.format(np.round(clf.feature_importances_, 2)))
 
-        # print(clf.score(validate[data_columns[:-1]].to_numpy(), validate[data_columns[-1]].to_numpy()))
-        # print(clf.score(train[data_columns[:-1]].to_numpy(), train[data_columns[-1]].to_numpy()))
+        # Save the model
+        pickle.dump(clf, open(self.filename, 'wb'))
+
+    def prediction(self, data: str, output: str):
+        """
+        Make prediction on new data
+        :param output: path file to store the results
+        :param data: new data with model features
+        :return:
+        """
+        # Upload the new data, save only the features and convert it numpy
+        new_data = pd.read_csv(data)
+        X = new_data[self.data_columns[:-1]].to_numpy()
+        # Upload the training model and run the new data with this model to predict user type
+        new_data['user'] = pickle.load(open(self.filename, 'rb')).predict(X)
+        new_data.to_csv(output)
 
 
 class BtDataToMlData:
@@ -67,6 +119,7 @@ class BtDataToMlData:
         """
         self.features_columns = features_columns
         self.sensors = pd.read_csv(sensors_file, index_col='Name')[['POINT_X', 'POINT_Y']]
+        self.sensors_names = self.sensors.index.tolist()
         self.output_folder = path
 
     def detect_outliers(self, features: pd.DataFrame) -> pd.DataFrame:
@@ -113,7 +166,6 @@ class BtDataToMlData:
         :param features_file: path to output file
         """
         print('   ' + user)
-        user_dic = {'car': 1, 'scooter': 2, 'ped': 3}
         # Remove records with incomplete information in fields: 'STDCALC','TOLASTDISCOTS'
         bt_users = pd.read_csv(bt_file)
         bt_users = bt_users[
@@ -124,8 +176,17 @@ class BtDataToMlData:
         if 'via_to_uni' not in df_columns:
             bt_users['via_to_uni'] = bt_users['via_to'].where(bt_users['VIAUNITC'] < bt_users['TOUNITC'],
                                                               bt_users['TOUNITC'] + bt_users['VIAUNITC'])
-        # Update label with numeric values with @user_dic and @user
-        bt_users['user'] = user_dic[user]
+
+        columns_to_add = ['via_to', 'via_to_uni']
+        if user == 'new_data':
+            # tasks in case of new data - delete rows with sensors not in sensors name list
+            bt_users = bt_users[
+                (bt_users['VIAUNITC'].isin(self.sensors_names)) & (bt_users['TOUNITC'].isin(self.sensors_names))]
+        else:
+            # tasks in case of samples file - Update label with numeric values with @user_dic and @user
+            user_dic = {'car': 1, 'scooter': 2, 'ped': 3}
+            bt_users['user'] = user_dic[user]
+            columns_to_add.append('user')
 
         # Create new feature based on 'CLOSETS' and 'LASTDISCOTS' columns,
 
@@ -140,7 +201,7 @@ class BtDataToMlData:
         if user == 'scooter':
             bt_users = self.detect_outliers(bt_users)
         # Save only relevant columns for the next processing
-        bt_users[['PK_UID'] + self.features_columns + ['via_to', 'via_to_uni', 'user']].to_csv(features_file)
+        bt_users[['PK_UID'] + self.features_columns + columns_to_add].to_csv(features_file)
 
     @staticmethod
     def features_file_to_one_file(file_array: list, features_file: str):
@@ -154,15 +215,5 @@ class BtDataToMlData:
         for file in file_array[1:]:
             features = features.append(pd.read_csv(file), ignore_index=True)
 
-        features['via_to_int'] = ''
-        # Group_by_via_to_uni
-        for index, (group_name, group) in enumerate(features.groupby('via_to_uni')):
-            temp_index = index
-            for group_name2, grpup_temp in group.groupby('via_to'):
-                # The same links and opposite directions will have the same number but with a opposite sign
-                features.loc[features['via_to'] == group_name2, 'via_to_int'] = temp_index
-                temp_index = -temp_index
         # Clean the dataframe and save it as csv file
         features.drop(columns=['via_to_uni', 'via_to', 'Unnamed: 0']).set_index('PK_UID').to_csv(features_file)
-
-# class MlObjects:
