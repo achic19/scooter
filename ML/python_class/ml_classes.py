@@ -6,6 +6,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.ensemble import IsolationForest
 import math
 import pickle
+import geopandas as gpd
 
 
 class Analysis:
@@ -13,23 +14,52 @@ class Analysis:
     Analysis of BT data with users classification.
     """
 
-    def __init__(self, bt_file: str, analysis_file: str):
+    def __init__(self, bt_file: str, folder_path: str, links_shp: str):
         """
         :param bt_file: to be  analysed
-        :param analysis_file: to store the result (each sheet with new analysis)
+        :param folder_path: to store the result derived from each action
+        :param links_shp: name of the shape file
         """
-        self.pd = pd.read_csv(bt_file)
-        self.analysis_file = analysis_file
+        self.bt = pd.read_csv(bt_file)
+        self.folder = folder_path
+        self.links = gpd.read_file(self.folder + 'shape_files/' + links_shp)
 
     def number_for_each_users(self):
         print('number_for_each_users')
-        results = pd.DataFrame(self.pd.groupby('user').count()['via_to'])
-        results.to_excel(self.analysis_file, sheet_name='number_for_each_users')
+        results = pd.DataFrame(self.bt.groupby('user').count()['via_to'])
+        results.to_csv(self.folder + 'number_for_each_users.csv')
 
     def number_per_link(self):
         print('number_per_link')
-        results = pd.DataFrame(self.pd.groupby(['user', 'via_to_uni']).count()['via_to'])
-        results.to_excel(self.analysis_file, sheet_name='number_per_link')
+        # Groupby links and users and aggregate for each group.
+        # Change the table so that user type become a column in the result file
+        results = pd.DataFrame(self.bt.groupby(['via_to_uni', 'user']).count()['via_to']).rename(
+            columns={'via_to': ''}).unstack(
+            fill_value=0).reset_index()
+        # Work with new data frame to dissolve multiplex columns and change the columns names to more meaningful names
+        results = pd.DataFrame(data=results.to_numpy(), columns=results.columns.droplevel(0))
+        results.rename(columns={'': 'via_to', 1: 'car', 2: 'scooter', 3: 'pedestrian'}, inplace=True)
+        results.to_csv(self.folder + 'number_per_link.csv')
+
+        # merge links with new data
+        new_shp = self.links.merge(results, on='via_to', how='right')
+        new_shp.to_file(self.folder + 'shape_files/' + 'number_per_link.shp')
+
+    def number_per_hour(self):
+        print('number_per_hour')
+        self.bt['hour'] = pd.to_datetime(self.bt['isr_time']).dt.hour
+        # Groupby links and users and aggregate for each group.
+        # Change the table so that user type become a column in the result file
+        results = pd.DataFrame(self.bt.groupby(['hour', 'user']).count()['via_to']).rename(
+            columns={'via_to': ''}).unstack(
+            fill_value=0).reset_index()
+        # Work with new data frame to dissolve multiplex columns and change the columns names to more meaningful names
+        results = pd.DataFrame(data=results.to_numpy(), columns=results.columns.droplevel(0))
+        results.rename(columns={'': 'hour', 1: 'car', 2: 'scooter', 3: 'pedestrian'}, inplace=True)
+        results.to_csv(self.folder + 'number_per_hour.csv')
+
+
+
 
 
 class BT:
@@ -182,6 +212,8 @@ class BtDataToMlData:
             # tasks in case of new data - delete rows with sensors not in sensors name list
             bt_users = bt_users[
                 (bt_users['VIAUNITC'].isin(self.sensors_names)) & (bt_users['TOUNITC'].isin(self.sensors_names))]
+            columns_to_add.append('isr_time')
+
         else:
             # tasks in case of samples file - Update label with numeric values with @user_dic and @user
             user_dic = {'car': 1, 'scooter': 2, 'ped': 3}

@@ -2,8 +2,8 @@ from python_class.ml_classes import *
 
 # parameters
 parameters = {'bt_files_to_features': False, 'features_file_to_one_file': False,
-              'BT': [False, {'samples': False, 'prepare new data': False, 'prediction': False}],
-              'analysis': [True, {'number_for_each_users': False, 'number_per_link': True}]}
+              'BT': [False, {'samples': False, 'prepare new data': True, 'prediction': True}],
+              'analysis': [True, {'number_for_each_users': False, 'number_per_link': False, 'number_per_hour': True}]}
 features_columns = ['STDCALC', 'AVGCALC', 'TRIPTIME', 'TRIPTIMEab', 'TRIPTIMEbc', 'TRIPTIMEcd', 'Length', 'Azimuth']
 sensors_file = 'bt_devics.csv'
 
@@ -38,9 +38,12 @@ if parameters['BT'][0]:
         bt.prediction('output_files/new_data.csv', 'output_files/prediction.csv')
 
 if parameters['analysis'][0]:
-    analysis = Analysis(bt_file='output_files/prediction.csv', analysis_file='output_files/analysis.xlsx')
+    analysis = Analysis(bt_file='output_files/prediction.csv', folder_path='output_files/analysis/',
+                        links_shp='links.shp')
     parameters_loc = parameters['analysis'][1]
     if parameters_loc['number_for_each_users']:
         analysis.number_for_each_users()
     if parameters_loc['number_per_link']:
         analysis.number_per_link()
+    if parameters_loc['number_per_hour']:
+        analysis.number_per_hour()
