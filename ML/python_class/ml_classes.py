@@ -1,8 +1,10 @@
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
 from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import RepeatedStratifiedKFold
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
 from sklearn.ensemble import IsolationForest
 import math
 import pickle
@@ -21,6 +23,9 @@ class Analysis:
         :param links_shp: name of the shape file
         """
         self.bt = pd.read_csv(bt_file)
+        self.bt['hour'] = pd.to_datetime(self.bt['isr_time']).dt.hour
+        # bt_users['via_to_uni'] = bt_users['via_to'].where(bt_users['VIAUNITC'] < bt_users['TOUNITC'],
+        #                                                   bt_users['TOUNITC'] + bt_users['VIAUNITC'])
         self.folder = folder_path
         self.links = gpd.read_file(self.folder + 'shape_files/' + links_shp)
 
@@ -47,7 +52,6 @@ class Analysis:
 
     def number_per_hour(self):
         print('number_per_hour')
-        self.bt['hour'] = pd.to_datetime(self.bt['isr_time']).dt.hour
         # Groupby links and users and aggregate for each group.
         # Change the table so that user type become a column in the result file
         results = pd.DataFrame(self.bt.groupby(['hour', 'user']).count()['via_to']).rename(
@@ -58,8 +62,26 @@ class Analysis:
         results.rename(columns={'': 'hour', 1: 'car', 2: 'scooter', 3: 'pedestrian'}, inplace=True)
         results.to_csv(self.folder + 'number_per_hour.csv')
 
+    def number_per_link_hour(self):
+        print('number_per_link_hour')
+        # Groupby links and users and hour and aggregate for each group.
+        # Change the table so that user type and hour become a columns in the result file
+        results = pd.DataFrame(self.bt.groupby(['via_to_uni', 'user', 'hour']).count()['via_to']).rename(
+            columns={'via_to': ''}).unstack(
+            fill_value=0).unstack(
+            fill_value=0).reset_index()
 
+        # Before  exporting the to csv file arrange the columns name
+        # (make it with single index rather than multiple indices)
+        results_columns = ['via_to']
+        results_columns.extend(['_'.join([str(col[1]), str(col[2])]) for col in results.columns.values[1:]])
+        results = pd.DataFrame(data=results.to_numpy(), columns=results.columns.droplevel(['hour', 'user']))
+        results.columns = results_columns
+        results.to_csv(self.folder + 'number_per_link_hour.csv')
 
+        # merge links with new data
+        new_shp = self.links.merge(results, on='via_to', how='right')
+        new_shp.to_file(self.folder + 'shape_files/' + 'number_per_link_hour.shp')
 
 
 class BT:
@@ -68,20 +90,22 @@ class BT:
         training, testing, validation, and predilection.
     """
 
-    def __init__(self, data_columns: list):
+    def __init__(self, data_columns: list, filename: str):
         """
         :param data_columns: helps to eliminate superfluous information
+        :param filename: where to store the ml model
         """
-
         self.data_columns = data_columns
-        self.filename = 'output_files/ml.sav'
+        self.filename = filename
 
-    def training(self, users: list, df_all: str, classifier):
+    def training(self, users: list, df_all: str, classifier, complex_model, is_save_model=True, ):
         """
         Apply Machine Learning to BT samples data according to the
         :param classifier
         :param df_all: samples file path
         :param users: 1:car, 2:scooter,3:pedestrian
+        :param complex_model: not included cross validator and hyper parameters tuning
+        :param is_save_model: not always we want to save the model
         """
         df_all = pd.read_csv(df_all)
 
@@ -96,29 +120,50 @@ class BT:
             test = test.append(test_0)
 
         # data for ML
+        train.append(validate)
         X = train[self.data_columns[:-1]].to_numpy()
         y = train[self.data_columns[-1]].to_numpy()
 
-        # test for ML
-        test = validate.append(test)
+        # ML
+        if complex_model:
+            model = classifier[0]
+            cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=5, random_state=1)
+            # MLPClassifier should not be run in conjunction with many processes in order to prevent crushing
+            if isinstance(model, MLPClassifier):
+                grid_search = GridSearchCV(estimator=model, param_grid=classifier[1], cv=cv, scoring='accuracy',
+                                           error_score=0)
+            else:
+                grid_search = GridSearchCV(estimator=model, param_grid=classifier[1], n_jobs=-1, cv=cv,
+                                           scoring='accuracy',
+                                           error_score=0)
+            clf = grid_search.fit(X, y)
+
+            # summarize results
+            print("Best: %f using %s" % (clf.best_score_, clf.best_params_))
+            means = clf.cv_results_['mean_test_score']
+            stds = clf.cv_results_['std_test_score']
+            params = clf.cv_results_['params']
+            for mean, stdev, param in zip(means, stds, params):
+                print("%f (%f) with: %r" % (mean, stdev, param))
+        else:
+            clf = classifier
+            clf.fit(X, y)
+
+        # Test the algorithm
         X_test = test[self.data_columns[:-1]].to_numpy()
         y_true = test[self.data_columns[-1]].to_numpy()
-
-        # ML
-        clf = classifier
-        clf.fit(X, y)
-
-        # Evaluation
         y_pred = clf.predict(X_test)
         print('confusion_matrix =\n {}'.format(confusion_matrix(y_true, y_pred)))
         print('f1_score micro = {0:.3f}'.format(f1_score(y_true, y_pred, average='micro')))
         print('f1_score  = {}'.format(np.round(f1_score(y_true, y_pred, average=None), 2)))
         print('accuracy_score = {0:.3f}'.format(accuracy_score(y_true, y_pred)))
-        if isinstance(classifier, RandomForestClassifier):
-            print('feature_importances = {}'.format(np.round(clf.feature_importances_, 2)))
 
-        # Save the model
-        pickle.dump(clf, open(self.filename, 'wb'))
+        # Save the model if it is required
+        if is_save_model:
+            pickle.dump(clf, open(self.filename, 'wb'))
+
+        if isinstance(classifier, RandomForestClassifier) and not complex_model:
+            print('feature_importances = {}'.format(np.round(clf.feature_importances_, 2)))
 
     def prediction(self, data: str, output: str):
         """
