@@ -1,14 +1,22 @@
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import RepeatedStratifiedKFold
+from sklearn.model_selection import ShuffleSplit
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
 from sklearn.ensemble import IsolationForest
 import math
 import pickle
 import geopandas as gpd
+from sklearn.model_selection import cross_val_score
+
+# For tree visualisation
+import os
+
+os.environ["PATH"] += os.pathsep + r'C:\Program Files\graphviz-2.38\release/bin/'
 
 
 class Analysis:
@@ -24,8 +32,6 @@ class Analysis:
         """
         self.bt = pd.read_csv(bt_file)
         self.bt['hour'] = pd.to_datetime(self.bt['isr_time']).dt.hour
-        # bt_users['via_to_uni'] = bt_users['via_to'].where(bt_users['VIAUNITC'] < bt_users['TOUNITC'],
-        #                                                   bt_users['TOUNITC'] + bt_users['VIAUNITC'])
         self.folder = folder_path
         self.links = gpd.read_file(self.folder + 'shape_files/' + links_shp)
 
@@ -44,6 +50,7 @@ class Analysis:
         # Work with new data frame to dissolve multiplex columns and change the columns names to more meaningful names
         results = pd.DataFrame(data=results.to_numpy(), columns=results.columns.droplevel(0))
         results.rename(columns={'': 'via_to', 1: 'car', 2: 'scooter', 3: 'pedestrian'}, inplace=True)
+        results[['car', 'scooter', 'pedestrian']] = results[['car', 'scooter', 'pedestrian']].astype('int')
         results.to_csv(self.folder + 'number_per_link.csv')
 
         # merge links with new data
@@ -77,8 +84,10 @@ class Analysis:
         results_columns.extend(['_'.join([str(col[1]), str(col[2])]) for col in results.columns.values[1:]])
         results = pd.DataFrame(data=results.to_numpy(), columns=results.columns.droplevel(['hour', 'user']))
         results.columns = results_columns
+        # Change the type of the data
+        results_columns.remove('via_to')
+        results[results_columns] = results[results_columns].astype('int')
         results.to_csv(self.folder + 'number_per_link_hour.csv')
-
         # merge links with new data
         new_shp = self.links.merge(results, on='via_to', how='right')
         new_shp.to_file(self.folder + 'shape_files/' + 'number_per_link_hour.shp')
@@ -98,44 +107,45 @@ class BT:
         self.data_columns = data_columns
         self.filename = filename
 
-    def training(self, users: list, df_all: str, classifier, complex_model, is_save_model=True, ):
+    def training(self, users: list, df_all: str, classifier, complex_model, is_save_model, is_tree_visualized=False):
         """
         Apply Machine Learning to BT samples data according to the
+
         :param classifier
         :param df_all: samples file path
         :param users: 1:car, 2:scooter,3:pedestrian
         :param complex_model: not included cross validator and hyper parameters tuning
         :param is_save_model: not always we want to save the model
+        :param is_tree_visualized: visualize the tree as pdf file
         """
         df_all = pd.read_csv(df_all)
 
         # for each user divide  data to train, validate and test
         df = df_all[df_all['user'] == users[0]][self.data_columns]
-        train, validate, test = np.split(df.sample(frac=1), [int(.6 * len(df)), int(.8 * len(df))])
+        train, test = np.split(df.sample(frac=1, random_state=1), [int(.8 * len(df))])
         for user in users[1:]:
             df = df_all[df_all['user'] == user][self.data_columns]
-            train_0, validate_0, test_0 = np.split(df.sample(frac=1), [int(.6 * len(df)), int(.8 * len(df))])
+            train_0, test_0 = np.split(df.sample(frac=1, random_state=1), [int(.8 * len(df))])
             train = train.append(train_0)
-            validate = validate.append(validate_0)
             test = test.append(test_0)
 
         # data for ML
-        train.append(validate)
+
         X = train[self.data_columns[:-1]].to_numpy()
         y = train[self.data_columns[-1]].to_numpy()
 
         # ML
         if complex_model:
             model = classifier[0]
-            cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=5, random_state=1)
+            cv = ShuffleSplit(n_splits=20, test_size=0.25)
             # MLPClassifier should not be run in conjunction with many processes in order to prevent crushing
-            if isinstance(model, MLPClassifier):
-                grid_search = GridSearchCV(estimator=model, param_grid=classifier[1], cv=cv, scoring='accuracy',
-                                           error_score=0)
-            else:
-                grid_search = GridSearchCV(estimator=model, param_grid=classifier[1], n_jobs=-1, cv=cv,
-                                           scoring='accuracy',
-                                           error_score=0)
+            # if isinstance(model, MLPClassifier):
+            #     grid_search = GridSearchCV(estimator=model, param_grid=classifier[1], cv=cv, scoring='accuracy',
+            #                                error_score=0)
+            # else:
+            grid_search = GridSearchCV(estimator=model, param_grid=classifier[1], n_jobs=-1, cv=cv,
+                                       scoring='accuracy',
+                                       error_score=0)
             clf = grid_search.fit(X, y)
 
             # summarize results
@@ -147,6 +157,8 @@ class BT:
                 print("%f (%f) with: %r" % (mean, stdev, param))
         else:
             clf = classifier
+            cv = ShuffleSplit(n_splits=20, test_size=0.25, random_state=0)
+            cross_val_score(clf, X, y, cv=cv)
             clf.fit(X, y)
 
         # Test the algorithm
@@ -162,7 +174,23 @@ class BT:
         if is_save_model:
             pickle.dump(clf, open(self.filename, 'wb'))
 
-        if isinstance(classifier, RandomForestClassifier) and not complex_model:
+        if is_tree_visualized:
+            estimator = clf.estimators_[-1]
+
+            from sklearn.tree import export_graphviz
+
+            # Export as dot file
+            export_graphviz(estimator, out_file='road_users.dot',
+                            feature_names=self.data_columns[:-1],
+                            class_names=["cars", "scooters", "peds"],
+                            rounded=True, proportion=False,
+                            precision=2, filled=True)
+
+            # Convert to png using system command (requires Graphviz)
+            # Convert a .dot file to .png
+            from subprocess import call
+            call(['dot', '-Tpdf', 'road_users.dot', '-o', 'road_users.pdf'])
+        if isinstance(classifier, (RandomForestClassifier, GradientBoostingClassifier)):
             print('feature_importances = {}'.format(np.round(clf.feature_importances_, 2)))
 
     def prediction(self, data: str, output: str):
@@ -178,7 +206,6 @@ class BT:
         # Upload the training model and run the new data with this model to predict user type
         new_data['user'] = pickle.load(open(self.filename, 'rb')).predict(X)
         new_data.to_csv(output)
-
 
 class BtDataToMlData:
     """
@@ -248,6 +275,9 @@ class BtDataToMlData:
 
         # For dataframe that  does not include the 'via_to_uni' column
         df_columns = bt_users.columns
+        if 'via_to'not in df_columns:
+            bt_users['via_to'] = bt_users['VIAUNITC'] + bt_users['TOUNITC']
+
         if 'via_to_uni' not in df_columns:
             bt_users['via_to_uni'] = bt_users['via_to'].where(bt_users['VIAUNITC'] < bt_users['TOUNITC'],
                                                               bt_users['TOUNITC'] + bt_users['VIAUNITC'])
