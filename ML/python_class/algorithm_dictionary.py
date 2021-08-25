@@ -11,7 +11,7 @@ from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.svm import SVC
 
 # ML algorithms with hyper parameters to build the grid for hyper parameters optimization
-# This code is based on:
+# This code is based on - sklearn:
 # https://machinelearningmastery.com/hyperparameters-for-classification-machine-learning-algorithms/
 algorithm_dictionary = {'random forest': [RandomForestClassifier(),
                                           dict(n_estimators=[10, 100, 1000], max_features=['sqrt', 'log2'])],

@@ -3,7 +3,7 @@ from python_class.algorithm_dictionary import algorithm_dictionary, which_algori
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 
 
-# parameters
+# my parameters
 # samples = complex\simple - if the selected method for training is simple,
 # you should send the name of the model with its hyper parameters
 parameters = {'bt_files_to_features': False, 'features_file_to_one_file': False,

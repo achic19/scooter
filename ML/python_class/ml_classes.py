@@ -13,7 +13,7 @@ import pickle
 import geopandas as gpd
 from sklearn.model_selection import cross_val_score
 
-# For tree visualisation
+# For last tree visualisation
 import os
 
 os.environ["PATH"] += os.pathsep + r'C:\Program Files\graphviz-2.38\release/bin/'
